@@ -1,6 +1,7 @@
 package com.willfp.ecoenchants.enchants.impl
 
 import com.willfp.eco.core.EcoPlugin
+import com.willfp.eco.core.Prerequisite
 import com.willfp.eco.core.data.keys.PersistentDataKey
 import com.willfp.eco.core.data.keys.PersistentDataKeyType
 import com.willfp.eco.core.data.profile
@@ -45,7 +46,7 @@ class EnchantmentSoulbound(
         private val soulboundKey = plugin.namespacedKeyFactory.create("soulbound")
 
         @EventHandler(
-            priority = EventPriority.LOW,
+            priority = EventPriority.HIGHEST,
             ignoreCancelled = true
         )
         fun handle(event: PlayerDeathEvent) {
@@ -79,6 +80,12 @@ class EnchantmentSoulbound(
             }
 
             event.drops.removeAll(items)
+
+            // Use native paper method
+            if (Prerequisite.HAS_PAPER.isMet) {
+                event.itemsToKeep += items
+                return
+            }
 
             for (item in items) {
                 item.fast().persistentDataContainer.set(soulboundKey, PersistentDataType.INTEGER, 1)
@@ -131,7 +138,9 @@ class EnchantmentSoulbound(
             ignoreCancelled = true
         )
         fun preventDroppingSoulboundItems(event: PlayerDeathEvent) {
-            event.drops.removeIf { it.fast().persistentDataContainer.has(soulboundKey, PersistentDataType.INTEGER) }
+            event.drops.removeIf { it.fast().persistentDataContainer.has(soulboundKey, PersistentDataType.INTEGER)
+                    && it.itemMeta.hasEnchant(enchant)
+            }
         }
     }
 }

@@ -2,10 +2,14 @@ package com.willfp.ecoenchants.target
 
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.willfp.eco.core.fast.fast
+import com.willfp.eco.core.items.HashedItem
+import com.willfp.ecoenchants.EcoEnchantsPlugin
 import com.willfp.ecoenchants.enchants.EcoEnchant
 import com.willfp.ecoenchants.enchants.EcoEnchantLevel
+import com.willfp.ecoenchants.enchants.FoundEcoEnchantLevel
 import com.willfp.libreforge.ItemProvidedHolder
-import com.willfp.libreforge.ProvidedHolder
+import com.willfp.libreforge.slot.SlotType
+import com.willfp.libreforge.slot.SlotTypes
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import java.util.concurrent.TimeUnit
@@ -15,18 +19,22 @@ typealias SlotProvider = (Player) -> Map<ItemInNumericSlot, ItemInSlot>
 
 data class ItemInSlot internal constructor(
     val item: ItemStack,
-    val slot: Collection<TargetSlot>
+    val slot: Collection<SlotType>
 ) {
     constructor(
         item: ItemStack,
-        slot: TargetSlot
+        slot: SlotType
     ) : this(item, listOf(slot))
 }
 
 data class ItemInNumericSlot internal constructor(
     val item: ItemStack,
     val slot: Int
-)
+) {
+    override fun hashCode(): Int {
+        return HashedItem.of(item).hash * (slot + 1)
+    }
+}
 
 private data class HeldEnchant(
     val enchant: EcoEnchant,
@@ -173,7 +181,9 @@ object EnchantLookup {
             for ((slot, enchants) in this.heldEnchantsInSlots) {
                 val inSlot = mutableMapOf<EcoEnchant, Int>()
                 for ((enchant, level) in enchants) {
-                    if (enchant.getLevel(level).conditions.all { it.isMet(this) }) {
+                    val enchantLevel = enchant.getLevel(level)
+                    val providedHolder = ItemProvidedHolder(enchantLevel, slot.item)
+                    if (enchantLevel.conditions.areMet(this, providedHolder)) {
                         inSlot[enchant] = level
                     }
                 }
@@ -239,7 +249,11 @@ object EnchantLookup {
             return 0
         }
 
-        if (enchant.getLevel(level).conditions.any { !it.isMet(this) }) {
+        val enchantLevel = enchant.getLevel(level)
+        val item = this.inventory.getItem(slot) ?: return 0
+        val providedHolder = ItemProvidedHolder(enchantLevel, item)
+
+        if (!enchantLevel.conditions.areMet(this, providedHolder)) {
             return 0
         }
 
@@ -292,7 +306,20 @@ object EnchantLookup {
                 }
             }
 
-            return found
+            // This is such a fucking disgusting way of implementing %active_level%,
+            // and it's probably quite slow too.
+            return if (EcoEnchantsPlugin.instance.configYml.getBool("extra-placeholders.active-level")) {
+                found.map {
+                    val level = it.holder as EcoEnchantLevel
+
+                    ItemProvidedHolder(
+                        FoundEcoEnchantLevel(level, this.getActiveEnchantLevel(level.enchant)),
+                        it.provider
+                    )
+                }
+            } else {
+                found
+            }
         }
 
     /**
@@ -305,7 +332,7 @@ object EnchantLookup {
     }
 
     init {
-        fun createProvider(slot: TargetSlot): SlotProvider {
+        fun createProvider(slot: SlotType): SlotProvider {
             return { player: Player ->
                 val found = mutableMapOf<ItemInNumericSlot, ItemInSlot>()
 
@@ -320,7 +347,7 @@ object EnchantLookup {
             }
         }
 
-        for (slot in TargetSlot.values()) {
+        for (slot in SlotTypes.values()) {
             registerProvider(createProvider(slot))
         }
     }

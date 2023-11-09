@@ -1,29 +1,28 @@
 package com.willfp.ecoenchants.enchants
 
 import com.github.benmanes.caffeine.cache.Caffeine
-import com.willfp.eco.core.EcoPlugin
 import com.willfp.eco.core.config.ConfigType
 import com.willfp.eco.core.config.config
 import com.willfp.eco.core.config.interfaces.Config
 import com.willfp.eco.core.config.readConfig
 import com.willfp.eco.core.fast.fast
-import com.willfp.eco.core.placeholder.PlayerStaticPlaceholder
+import com.willfp.eco.core.placeholder.PlayerlessPlaceholder
+import com.willfp.eco.core.placeholder.context.PlaceholderContext
+import com.willfp.eco.core.placeholder.templates.SimpleInjectablePlaceholder
 import com.willfp.eco.util.StringUtils
 import com.willfp.eco.util.containsIgnoreCase
 import com.willfp.ecoenchants.EcoEnchantsPlugin
 import com.willfp.ecoenchants.display.getFormattedName
 import com.willfp.ecoenchants.mechanics.infiniteIfNegative
 import com.willfp.ecoenchants.rarity.EnchantmentRarities
-import com.willfp.ecoenchants.target.EnchantLookup.getEnchantLevel
 import com.willfp.ecoenchants.target.EnchantmentTargets
-import com.willfp.ecoenchants.target.TargetSlot
 import com.willfp.ecoenchants.type.EnchantmentTypes
+import com.willfp.libreforge.SilentViolationContext
 import com.willfp.libreforge.ViolationContext
 import com.willfp.libreforge.conditions.ConditionList
 import com.willfp.libreforge.conditions.Conditions
-import com.willfp.libreforge.conditions.emptyConditionList
-import com.willfp.libreforge.effects.EffectList
 import com.willfp.libreforge.effects.emptyEffectList
+import com.willfp.libreforge.slot.SlotType
 import net.kyori.adventure.text.Component
 import org.bukkit.Bukkit
 import org.bukkit.Material
@@ -44,7 +43,7 @@ import java.util.Objects
 abstract class EcoEnchant(
     val id: String,
     configProvider: (EcoEnchant) -> Config,
-    protected val plugin: EcoPlugin
+    protected val plugin: EcoEnchantsPlugin
 ) : Enchantment(NamespacedKey.minecraft(id)), EcoEnchantLike {
     final override val config by lazy { configProvider(this) }
     override val enchant by lazy { this }
@@ -60,7 +59,7 @@ abstract class EcoEnchant(
     val targets = config.getStrings("targets")
         .mapNotNull { EnchantmentTargets[it] }
 
-    val slots: Set<TargetSlot>
+    val slots: Set<SlotType>
         get() = targets.map { it.slot }.toSet()
 
     override val type = EnchantmentTypes[config.getString("type")] ?: EnchantmentTypes.values().first()
@@ -85,19 +84,19 @@ abstract class EcoEnchant(
 
     constructor(
         config: Config,
-        plugin: EcoPlugin
+        plugin: EcoEnchantsPlugin
     ) : this(config.getString("id"), { config }, plugin)
 
     constructor(
         id: String,
         config: Config,
-        plugin: EcoPlugin
+        plugin: EcoEnchantsPlugin
     ) : this(id, { config }, plugin)
 
     @JvmOverloads
     constructor(
         id: String,
-        plugin: EcoPlugin,
+        plugin: EcoEnchantsPlugin,
         force: Boolean = true
     ) : this(
         id,
@@ -121,16 +120,21 @@ abstract class EcoEnchant(
         checkDependencies()
 
         config.injectPlaceholders(
-            PlayerStaticPlaceholder(
-                "level"
-            ) { p ->
-                p.getEnchantLevel(this).toString()
+            object : SimpleInjectablePlaceholder("level") {
+                override fun getValue(args: String, context: PlaceholderContext): String? {
+                    return context.itemStack?.fast()?.getEnchantmentLevel(this@EcoEnchant)?.toString()
+                }
             }
         )
 
+        PlayerlessPlaceholder(plugin, "${id}_name") {
+            this.getFormattedName(0, false)
+        }.register()
+
         conditions = Conditions.compile(
             config.getSubsections("conditions"),
-            ViolationContext(plugin, "Enchantment $id")
+            if (plugin.isLoaded) ViolationContext(plugin, "Enchantment $id")
+            else SilentViolationContext
         )
 
         if (Bukkit.getPluginManager().getPermission("ecoenchants.fromtable.$id") == null) {
@@ -169,7 +173,7 @@ abstract class EcoEnchant(
     }
 
     private fun checkDependencies() {
-        val missingPlugins = mutableListOf<String>()
+        val missingPlugins = mutableSetOf<String>()
 
         for (dependency in config.getStrings("dependencies")) {
             if (!Bukkit.getPluginManager().plugins.map { it.name }.containsIgnoreCase(dependency)) {

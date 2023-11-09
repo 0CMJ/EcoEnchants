@@ -32,15 +32,15 @@ allprojects {
         mavenCentral()
 
         maven("https://repo.papermc.io/repository/maven-public/")
-        maven("https://jitpack.io")
         maven("https://repo.auxilor.io/repository/maven-public/")
+        maven("https://jitpack.io")
         maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
         maven("https://repo.codemc.org/repository/nms/")
         maven("https://repo.essentialsx.net/releases/")
     }
 
     dependencies {
-        compileOnly("com.willfp:eco:6.53.0")
+        compileOnly("com.willfp:eco:6.58.0")
         compileOnly("org.jetbrains:annotations:23.0.0")
         compileOnly("org.jetbrains.kotlin:kotlin-stdlib:1.7.10")
         compileOnly("com.github.ben-manes.caffeine:caffeine:3.1.0")
